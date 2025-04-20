@@ -7,11 +7,7 @@ import time
 
 import cv2
 import numpy as np
-<<<<<<< HEAD
-from flask import Flask, Response, render_template_string, request, send_from_directory
-=======
 from flask import Flask, Response, render_template_string, send_from_directory
->>>>>>> fixes
 from pyngrok import ngrok
 
 # Set up logging
@@ -23,13 +19,8 @@ DEFAULT_PORT = "4747"
 RECORDINGS_DIR = "/Users/Rahul/recordings"
 VIDEO_FORMAT = "avc1"  # H.264 codec
 VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
-<<<<<<< HEAD
-VIDEO_WIDTH = 1280    # Increased from 640
-VIDEO_HEIGHT = 720    # Increased from 480 (16:9 aspect ratio)
-=======
 VIDEO_WIDTH = 640  # Force smaller resolution
 VIDEO_HEIGHT = 480
->>>>>>> fixes
 VIDEO_FPS = 30.0  # Match input FPS
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -49,40 +40,6 @@ HTML_TEMPLATE = """
     <title>Nanny Cam Dashboard</title>
     <style>
         body { 
-<<<<<<< HEAD
-            margin: 0; 
-            padding: 20px;
-            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
-            background: #f0f2f5;
-        }
-        .container {
-            max-width: 1440px;
-            margin: 0 auto;
-        }
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .tab {
-            padding: 10px 20px;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .tab.active {
-            background: #2c3e50;
-            color: white;
-        }
-        .panel {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-=======
             text-align: center; 
             padding: 20px; 
             background: #f0f2f5;
@@ -106,7 +63,6 @@ HTML_TEMPLATE = """
         }
         h1 { color: #1a1a1a; margin-bottom: 30px; }
         .url-info { margin: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
->>>>>>> fixes
         .recordings-list {
             width: 100%;
             border-collapse: collapse;
@@ -118,24 +74,6 @@ HTML_TEMPLATE = """
             border-bottom: 1px solid #eee;
             transition: background 0.2s;
         }
-<<<<<<< HEAD
-        .recording-row:hover {
-            background: #f5f5f5;
-            cursor: pointer;
-        }
-        .recording-info {
-            flex: 1;
-        }
-        .recording-name {
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-        .recording-date {
-            color: #666;
-            font-size: 14px;
-        }
-        .play-button {
-=======
         .modal {
             display: none;
             position: fixed;
@@ -189,27 +127,13 @@ HTML_TEMPLATE = """
             flex: 1;
         }
         .play-btn {
->>>>>>> fixes
             padding: 8px 16px;
             background: #2c3e50;
             color: white;
             border: none;
             border-radius: 4px;
-<<<<<<< HEAD
-            cursor: pointer;
-        }
-        #live-stream {
-            width: 100%;
-            max-width: 1280px;
-            margin: 0 auto;
-            display: block;
-            border-radius: 8px;
-        }
-        .modal {
-=======
         }
         #videoModal {
->>>>>>> fixes
             display: none;
             position: fixed;
             top: 0;
@@ -227,12 +151,7 @@ HTML_TEMPLATE = """
         }
         .modal-video {
             width: 100%;
-<<<<<<< HEAD
-            max-height: 80vh;
-            background: #000;
-=======
             border-radius: 8px;
->>>>>>> fixes
         }
         .close-btn {
             position: absolute;
@@ -256,17 +175,6 @@ HTML_TEMPLATE = """
         </div>
 
         <div id="recordings-panel" class="panel" style="display:none">
-<<<<<<< HEAD
-            <div id="recordings-list"></div>
-        </div>
-    </div>
-
-    <div id="videoModal" class="modal">
-        <div class="modal-content">
-            <span class="close-btn" onclick="closeModal()">&times;</span>
-            <video id="modalVideo" class="modal-video" controls>
-                Your browser does not support the video tag.
-=======
             <div id="recordings-list" class="recordings-list"></div>
         </div>
     </div>
@@ -276,7 +184,6 @@ HTML_TEMPLATE = """
             <span class="close-btn" onclick="closeModal()">&times;</span>
             <video id="modalVideo" class="modal-video" controls>
                 <source src="" type="video/mp4">
->>>>>>> fixes
             </video>
         </div>
     </div>
@@ -299,16 +206,6 @@ HTML_TEMPLATE = """
                 .then(data => {
                     const list = document.getElementById('recordings-list');
                     list.innerHTML = data.recordings.map(rec => `
-<<<<<<< HEAD
-                        <div class="recording-row" onclick="playVideo('/recording/${rec.filename}')">
-                            <div class="recording-info">
-                                <div class="recording-name">${rec.filename}</div>
-                                <div class="recording-date">
-                                    Recorded: ${rec.date} | Size: ${rec.duration}
-                                </div>
-                            </div>
-                            <button class="play-button">Play</button>
-=======
                         <div class="recording-item">
                             <div class="recording-info">
                                 <div><strong>${rec.filename}</strong></div>
@@ -316,7 +213,6 @@ HTML_TEMPLATE = """
                                 <div>Size: ${rec.duration}</div>
                             </div>
                             <button class="play-btn" onclick="playVideo('/recording/${rec.filename}')">Play</button>
->>>>>>> fixes
                         </div>
                     `).join('');
                 });
@@ -325,43 +221,25 @@ HTML_TEMPLATE = """
         function playVideo(url) {
             const modal = document.getElementById('videoModal');
             const video = document.getElementById('modalVideo');
-<<<<<<< HEAD
-            video.innerHTML = `<source src="${url}" type="video/mp4">`;
-            modal.style.display = 'block';
-            video.load();
-=======
             video.querySelector('source').src = url;
             video.load();
             modal.style.display = 'block';
->>>>>>> fixes
             video.play().catch(e => console.error('Error playing video:', e));
         }
 
         function closeModal() {
             const modal = document.getElementById('videoModal');
             const video = document.getElementById('modalVideo');
-<<<<<<< HEAD
-            
-            video.pause();
-            video.innerHTML = '';
-=======
             video.pause();
             video.querySelector('source').src = '';
             video.load();
->>>>>>> fixes
             modal.style.display = 'none';
         }
 
         // Close modal on outside click
-<<<<<<< HEAD
-        document.getElementById('videoModal').onclick = function(e) {
-            if (e.target == this) closeModal();
-        }
-=======
         document.getElementById('videoModal').addEventListener('click', function(e) {
             if (e.target === this) closeModal();
         });
->>>>>>> fixes
     </script>
 </body>
 </html>
@@ -680,11 +558,6 @@ class StreamingServer:
                 self.public_url = ngrok.connect(FLASK_PORT).public_url
             logger.info(f"Stream available at: {self.public_url}")
 
-            @self.app.before_request
-            def before_request():
-                logger.info(f"Incoming request: {request.path}")
-                logger.info(f"Request headers: {dict(request.headers)}")
-
             @self.app.route("/")
             def index():
                 return render_template_string(HTML_TEMPLATE, stream_url=self.public_url)
@@ -726,35 +599,7 @@ class StreamingServer:
                     logger.error(f"Error serving video: {str(e)}")
                     return str(e), 500
 
-            @self.app.route("/recordings")
-            def list_recordings():
-                recordings = []
-                for file in os.listdir(RECORDINGS_DIR):
-                    if file.endswith(".mp4"):
-                        path = os.path.join(RECORDINGS_DIR, file)
-                        stat = os.stat(path)
-                        recordings.append({
-                            "filename": file,
-                            "date": datetime.datetime.fromtimestamp(stat.st_mtime).strftime(DISPLAY_TIMESTAMP_FORMAT),
-                            "duration": f"{stat.st_size / (1024*1024):.1f} MB"
-                        })
-                result = {"recordings": sorted(recordings, key=lambda x: x["date"], reverse=True)}
-                return result
-
-            @self.app.route("/recording/<path:filename>")
-            def serve_recording(filename):
-                try:
-                    response = send_from_directory(RECORDINGS_DIR, filename)
-                    response.headers.update({
-                        'Content-Type': 'video/mp4',
-                        'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'no-cache'
-                    })
-                    return response
-                except Exception as e:
-                    logger.error(f"Error serving video: {str(e)}")
-                    return str(e), 500
-
+            # Start the Flask server
             threading.Thread(
                 target=lambda: self.app.run(
                     host="0.0.0.0", 
