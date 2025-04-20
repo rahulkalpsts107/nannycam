@@ -39,17 +39,40 @@ HTML_TEMPLATE = """
 <head>
     <title>Nanny Cam Stream</title>
     <style>
-        body { text-align: center; padding: 20px; }
-        h1 { color: #333; }
-        .url-info { margin: 20px; padding: 10px; background: #f0f0f0; }
+        body { 
+            text-align: center; 
+            padding: 20px; 
+            background: #f0f2f5;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .stream-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stream-window {
+            width: 100%;
+            height: auto;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+        h1 { color: #1a1a1a; margin-bottom: 30px; }
+        .url-info { margin: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
     </style>
 </head>
 <body>
-    <h1>Live Stream</h1>
-    <div class="url-info">
-        <p>Stream URL: <a href="{{ stream_url }}" target="_blank">{{ stream_url }}</a></p>
+    <div class="stream-container">
+        <h1>Live Stream</h1>
+        <div class="url-info">
+            <p>Stream URL: <a href="{{ stream_url }}" target="_blank">{{ stream_url }}</a></p>
+        </div>
+        <img class="stream-window" src="{{ url_for('video_feed') }}" alt="Live Stream">
     </div>
-    <img src="{{ url_for('video_feed') }}" width="640" height="480">
 </body>
 </html>
 """
@@ -295,7 +318,8 @@ class StreamingServer:
                 consecutive_failures = 0
                 self._last_frame_time = time.time()
                 frame_copy = frame.copy()
-                ret, buffer = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                # Increase JPEG quality for better stream clarity
+                ret, buffer = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 95])
                 if ret:
                     self._frame_buffer.put(buffer.tobytes(), block=False)
 
