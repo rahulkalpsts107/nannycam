@@ -7,7 +7,7 @@ import time
 
 import cv2
 import numpy as np
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template_string, request, send_from_directory
 from pyngrok import ngrok
 
 # Set up logging
@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 # Constants
 DEFAULT_PORT = "4747"
 RECORDINGS_DIR = "/Users/Rahul/recordings"
-VIDEO_FORMAT = "MPEG"  # Try more basic codec
-VIDEO_EXTENSIONS = {"MPEG": ".avi"}
-VIDEO_WIDTH = 640  # Force smaller resolution
-VIDEO_HEIGHT = 480
+VIDEO_FORMAT = "avc1"  # H.264 codec
+VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
+VIDEO_WIDTH = 1280    # Increased from 640
+VIDEO_HEIGHT = 720    # Increased from 480 (16:9 aspect ratio)
 VIDEO_FPS = 30.0  # Match input FPS
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -37,42 +37,192 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Nanny Cam Stream</title>
+    <title>Nanny Cam Dashboard</title>
     <style>
         body { 
-            text-align: center; 
-            padding: 20px; 
+            margin: 0; 
+            padding: 20px;
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
             background: #f0f2f5;
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
         }
-        .stream-container {
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .tab.active {
+            background: #2c3e50;
+            color: white;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .recordings-list {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .recording-row {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+        .recording-row:hover {
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+        .recording-info {
+            flex: 1;
+        }
+        .recording-name {
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+        .recording-date {
+            color: #666;
+            font-size: 14px;
+        }
+        .play-button {
+            padding: 8px 16px;
+            background: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #live-stream {
+            width: 100%;
             max-width: 1280px;
             margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .stream-window {
-            width: 100%;
-            height: auto;
-            aspect-ratio: 16/9;
-            object-fit: cover;
+            display: block;
             border-radius: 8px;
         }
-        h1 { color: #1a1a1a; margin-bottom: 30px; }
-        .url-info { margin: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: relative;
+            width: 90%;
+            max-width: 1280px;
+            margin: 40px auto;
+        }
+        .modal-video {
+            width: 100%;
+            max-height: 80vh;
+            background: #000;
+        }
+        .close-btn {
+            position: absolute;
+            right: -40px;
+            top: 0;
+            color: white;
+            font-size: 30px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
-    <div class="stream-container">
-        <h1>Live Stream</h1>
-        <div class="url-info">
-            <p>Stream URL: <a href="{{ stream_url }}" target="_blank">{{ stream_url }}</a></p>
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" onclick="showPanel('live')">Live Stream</div>
+            <div class="tab" onclick="showPanel('recordings')">Recordings</div>
         </div>
-        <img class="stream-window" src="{{ url_for('video_feed') }}" alt="Live Stream">
+        
+        <div id="live-panel" class="panel">
+            <img id="live-stream" src="{{ url_for('video_feed') }}" alt="Live Stream">
+        </div>
+
+        <div id="recordings-panel" class="panel" style="display:none">
+            <div id="recordings-list"></div>
+        </div>
     </div>
+
+    <div id="videoModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <video id="modalVideo" class="modal-video" controls>
+                Your browser does not support the video tag.
+            </video>
+        </div>
+    </div>
+
+    <script>
+        function showPanel(id) {
+            document.querySelectorAll('.tab').forEach(tab => 
+                tab.classList.toggle('active', tab.textContent.toLowerCase().includes(id)));
+            document.getElementById('live-panel').style.display = id === 'live' ? 'block' : 'none';
+            document.getElementById('recordings-panel').style.display = id === 'recordings' ? 'block' : 'none';
+            
+            if (id === 'recordings') {
+                loadRecordings();
+            }
+        }
+
+        function loadRecordings() {
+            fetch('/recordings')
+                .then(response => response.json())
+                .then(data => {
+                    const list = document.getElementById('recordings-list');
+                    list.innerHTML = data.recordings.map(rec => `
+                        <div class="recording-row" onclick="playVideo('/recording/${rec.filename}')">
+                            <div class="recording-info">
+                                <div class="recording-name">${rec.filename}</div>
+                                <div class="recording-date">
+                                    Recorded: ${rec.date} | Size: ${rec.duration}
+                                </div>
+                            </div>
+                            <button class="play-button">Play</button>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function playVideo(url) {
+            const modal = document.getElementById('videoModal');
+            const video = document.getElementById('modalVideo');
+            video.innerHTML = `<source src="${url}" type="video/mp4">`;
+            modal.style.display = 'block';
+            video.load();
+            video.play().catch(e => console.error('Error playing video:', e));
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('videoModal');
+            const video = document.getElementById('modalVideo');
+            
+            video.pause();
+            video.innerHTML = '';
+            modal.style.display = 'none';
+        }
+
+        // Close modal on outside click
+        document.getElementById('videoModal').onclick = function(e) {
+            if (e.target == this) closeModal();
+        }
+    </script>
 </body>
 </html>
 """
@@ -160,12 +310,18 @@ class OBICamRecorder:
 
             self.close_recording()
             timestamp = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-            filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.avi"
+            filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.mp4"
 
             logger.info(f"Creating recording file: {filename}")
 
-            fourcc = cv2.VideoWriter_fourcc(*VIDEO_FORMAT)
-            new_output = cv2.VideoWriter(filename, fourcc, 20.0, (VIDEO_WIDTH, VIDEO_HEIGHT), True)
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # Use H.264
+            new_output = cv2.VideoWriter(
+                filename,
+                fourcc,
+                30.0,  # Use full 30fps
+                (VIDEO_WIDTH, VIDEO_HEIGHT),
+                True
+            )
 
             if not new_output.isOpened():
                 raise RuntimeError(f"VideoWriter failed to open with codec {VIDEO_FORMAT}")
@@ -382,20 +538,61 @@ class StreamingServer:
 
             if self.use_ngrok:
                 self.public_url = ngrok.connect(FLASK_PORT).public_url
-
             logger.info(f"Stream available at: {self.public_url}")
+
+            @self.app.before_request
+            def before_request():
+                logger.info(f"Incoming request: {request.path}")
+                logger.info(f"Request headers: {dict(request.headers)}")
 
             @self.app.route("/")
             def index():
                 return render_template_string(HTML_TEMPLATE, stream_url=self.public_url)
 
-            @self.app.route("/url")
-            def get_url():
-                return {"url": self.public_url}
+            @self.app.route("/recordings")
+            def list_recordings():
+                recordings = []
+                for file in os.listdir(RECORDINGS_DIR):
+                    if file.endswith(".mp4"):
+                        path = os.path.join(RECORDINGS_DIR, file)
+                        stat = os.stat(path)
+                        recordings.append({
+                            "filename": file,
+                            "date": datetime.datetime.fromtimestamp(stat.st_mtime).strftime(DISPLAY_TIMESTAMP_FORMAT),
+                            "duration": f"{stat.st_size / (1024*1024):.1f} MB"
+                        })
+                result = {"recordings": sorted(recordings, key=lambda x: x["date"], reverse=True)}
+                logger.info(f"Found {len(recordings)} recordings")
+                return result
+
+            @self.app.route("/recording/<path:filename>")
+            def serve_recording(filename):
+                logger.info(f"Requested video: {filename}")
+                try:
+                    filepath = os.path.join(RECORDINGS_DIR, filename)
+                    if not os.path.exists(filepath):
+                        logger.error(f"File not found: {filepath}")
+                        return "File not found", 404
+                        
+                    response = send_from_directory(RECORDINGS_DIR, filename)
+                    response.headers.update({
+                        'Content-Type': 'video/mp4',
+                        'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'no-cache'
+                    })
+                    logger.info(f"Serving video: {filename} ({response.content_length} bytes)")
+                    return response
+                except Exception as e:
+                    logger.error(f"Error serving video: {str(e)}")
+                    return str(e), 500
 
             threading.Thread(
                 target=lambda: self.app.run(
-                    host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False, threaded=True
+                    host="0.0.0.0", 
+                    port=FLASK_PORT,
+                    debug=False,
+                    use_reloader=False,
+                    threaded=True
                 )
             ).start()
 
