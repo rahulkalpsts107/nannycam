@@ -11,9 +11,15 @@ logger = logging.getLogger(__name__)
 def handle_shutdown(signum, frame):
     """Handle graceful shutdown"""
     logger.info("Shutdown signal received, closing gracefully...")
-    if server and hasattr(server, 'recorder'):
-        server.recorder.close_recording()
-    os._exit(0)
+    try:
+        if 'server' in globals() and server is not None:
+            server._running = False
+            if server.recorder:
+                server.recorder.close_recording()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+    finally:
+        os._exit(0)
 
 if __name__ == '__main__':
     # Setup signal handlers

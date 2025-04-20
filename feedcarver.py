@@ -121,6 +121,15 @@ class OBICamRecorder:
         self.recording_start_time = time.time()
         print(f"Started new recording: {filename}")
         
+    def close_recording(self):
+        """Safely close current recording and release resources"""
+        logger.info("Closing recording...")
+        if self.current_output is not None:
+            self.current_output.release()
+            self.current_output = None
+        if self.cap is not None:
+            self.cap.release()
+            
     def run(self):
         try:
             self.create_new_recording()
