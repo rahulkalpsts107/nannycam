@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch NannyCam",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/web_stream.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "FLASK_APP": "web_stream.py",
+                "FLASK_ENV": "development",
+                "PYTHONHTTPSVERIFY": "0",
+                "PORT_RANGE_START": "8000",
+                "PORT_RANGE_END": "8999"
+            }
+        }
+    ]
+}

@@ -1,6 +1,7 @@
-opencv-python>=4.0.0
-flask==2.3.3
-flask-basicauth==0.2.0
-pyngrok==6.0.0
-certifi==2023.7.22
-Werkzeug>=2.3.7
+flask
+flask-basicauth
+opencv-python
+pyngrok
+pyOpenSSL
+cryptography
+certifi

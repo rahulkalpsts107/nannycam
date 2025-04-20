@@ -158,10 +158,12 @@ class StreamingServer:
         self.use_ngrok = use_ngrok
         if self.use_ngrok:
             ngrok.set_auth_token(NGROK_AUTH_TOKEN)
+        else:
+            self.public_url = f"https://{PUBLIC_IP}"  # Use configured public URL
+            logger.info(f"Using public URL: {self.public_url}")
         self.app = Flask(__name__)
         self.recorder = recorder
         self.frame_count = 0
-        self.public_url = None
         self._frame_lock = threading.Lock()
         self._frame_buffer = queue.Queue(maxsize=30)  # Buffer 30 frames
         self._running = True
@@ -288,8 +290,6 @@ class StreamingServer:
 
             if self.use_ngrok:
                 self.public_url = ngrok.connect(FLASK_PORT).public_url
-            else:
-                self.public_url = f"https://{PUBLIC_IP}:{FLASK_PORT}"
             
             logger.info(f"Stream available at: {self.public_url}")
             
@@ -313,20 +313,3 @@ class StreamingServer:
         except Exception as e:
             logger.error(f"Failed to start server: {str(e)}")
             raise
-
-if __name__ == "__main__":
-    recorder = OBICamRecorder(
-        ip_address="192.168.1.129",
-        port=DEFAULT_PORT,
-        recording_duration=DEFAULT_RECORDING_DURATION,
-        show_window=False
-    )
-    
-    server = StreamingServer(recorder)
-    server.start()
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Shutting down...")
