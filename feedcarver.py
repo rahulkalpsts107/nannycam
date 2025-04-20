@@ -25,6 +25,8 @@ DEFAULT_RECORDING_DURATION = 3600  # 1 hour in seconds
 FLASK_PORT = 8000  # Changed from 5000
 FLASK_PORT_FALLBACK = 8080  # Fallback port if primary is in use
 NGROK_AUTH_TOKEN = "2vzWj2vkowo5gKH4v76TzvfKZs0_6MXA3sk8otnHKzPyL4v2B"
+PUBLIC_IP = "infinite-cunning-eagle.ngrok-free.app"  # Add your public IP here
+USE_NGROK = False  # Set to False to use public IP instead
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -152,9 +154,10 @@ class OBICamRecorder:
                 cv2.destroyAllWindows()
 
 class StreamingServer:
-    def __init__(self, recorder):
-        # Configure ngrok
-        ngrok.set_auth_token(NGROK_AUTH_TOKEN)
+    def __init__(self, recorder, use_ngrok=USE_NGROK):
+        self.use_ngrok = use_ngrok
+        if self.use_ngrok:
+            ngrok.set_auth_token(NGROK_AUTH_TOKEN)
         self.app = Flask(__name__)
         self.recorder = recorder
         self.frame_count = 0
@@ -167,6 +170,9 @@ class StreamingServer:
         self._last_frame_time = time.time()
         self._connection_healthy = True
         self._reconnect_timeout = 5  # seconds
+        self._recording_enabled = True
+        if self._recording_enabled:
+            self.recorder.create_new_recording()
 
         # Add root route
         @self.app.route('/video_feed')
@@ -187,6 +193,7 @@ class StreamingServer:
     def _capture_frames(self):
         consecutive_failures = 0
         max_failures = 3
+        recording_start_time = time.time()
         
         while self._running:
             try:
@@ -203,13 +210,20 @@ class StreamingServer:
                     if consecutive_failures >= max_failures:
                         self._connection_healthy = False
                         consecutive_failures = 0
-                        
                     time.sleep(0.1)
                     continue
 
+                # Handle recording
+                if self._recording_enabled:
+                    current_time = time.time()
+                    if current_time - recording_start_time >= self.recorder.recording_duration:
+                        self.recorder.create_new_recording()
+                        recording_start_time = current_time
+                    self.recorder.current_output.write(frame)
+
+                # Continue with streaming
                 consecutive_failures = 0
                 self._last_frame_time = time.time()
-
                 frame_copy = frame.copy()
                 ret, buffer = cv2.imencode('.jpg', frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ret:
@@ -258,6 +272,8 @@ class StreamingServer:
 
     def __del__(self):
         self._running = False
+        if self._recording_enabled and hasattr(self.recorder, 'current_output'):
+            self.recorder.current_output.release()
         if hasattr(self, '_capture_thread'):
             self._capture_thread.join(timeout=1.0)
         self._current_frame = None
@@ -269,8 +285,13 @@ class StreamingServer:
             if not self._capture_thread.is_alive():
                 self._capture_thread.start()
                 time.sleep(1)
-            self.public_url = ngrok.connect(FLASK_PORT).public_url
-            logger.info(f"Ngrok tunnel established at: {self.public_url}")
+
+            if self.use_ngrok:
+                self.public_url = ngrok.connect(FLASK_PORT).public_url
+            else:
+                self.public_url = f"https://{PUBLIC_IP}:{FLASK_PORT}"
+            
+            logger.info(f"Stream available at: {self.public_url}")
             
             @self.app.route('/')
             def index():
