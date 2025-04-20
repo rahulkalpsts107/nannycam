@@ -7,7 +7,7 @@ import time
 
 import cv2
 import numpy as np
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template_string, send_from_directory
 from pyngrok import ngrok
 
 # Set up logging
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # Constants
 DEFAULT_PORT = "4747"
 RECORDINGS_DIR = "/Users/Rahul/recordings"
-VIDEO_FORMAT = "MPEG"  # Try more basic codec
-VIDEO_EXTENSIONS = {"MPEG": ".avi"}
+VIDEO_FORMAT = "avc1"  # H.264 codec
+VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
 VIDEO_WIDTH = 640  # Force smaller resolution
 VIDEO_HEIGHT = 480
 VIDEO_FPS = 30.0  # Match input FPS
@@ -37,19 +37,210 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Nanny Cam Stream</title>
+    <title>Nanny Cam Dashboard</title>
     <style>
-        body { text-align: center; padding: 20px; }
-        h1 { color: #333; }
-        .url-info { margin: 20px; padding: 10px; background: #f0f0f0; }
+        body { 
+            text-align: center; 
+            padding: 20px; 
+            background: #f0f2f5;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .stream-container {
+            max-width: 1280px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stream-window {
+            width: 100%;
+            height: auto;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+        h1 { color: #1a1a1a; margin-bottom: 30px; }
+        .url-info { margin: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .recordings-list {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .recording-row {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #2c3e50;
+            color: white;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .recordings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .recording-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .recording-item:hover {
+            transform: translateY(-2px);
+        }
+        .recording-info {
+            flex: 1;
+        }
+        .play-btn {
+            padding: 8px 16px;
+            background: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        #videoModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: relative;
+            width: 90%;
+            max-width: 1280px;
+            margin: 40px auto;
+        }
+        .modal-video {
+            width: 100%;
+            border-radius: 8px;
+        }
+        .close-btn {
+            position: absolute;
+            right: -40px;
+            top: 0;
+            color: white;
+            font-size: 30px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
-    <h1>Live Stream</h1>
-    <div class="url-info">
-        <p>Stream URL: <a href="{{ stream_url }}" target="_blank">{{ stream_url }}</a></p>
+    <div class="container">
+        <div class="tabs">
+            <div class="tab active" onclick="showPanel('live')">Live Stream</div>
+            <div class="tab" onclick="showPanel('recordings')">Recordings</div>
+        </div>
+        
+        <div id="live-panel" class="panel">
+            <img id="live-stream" src="{{ url_for('video_feed') }}" alt="Live Stream">
+        </div>
+
+        <div id="recordings-panel" class="panel" style="display:none">
+            <div id="recordings-list" class="recordings-list"></div>
+        </div>
     </div>
-    <img src="{{ url_for('video_feed') }}" width="640" height="480">
+
+    <div id="videoModal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <video id="modalVideo" class="modal-video" controls>
+                <source src="" type="video/mp4">
+            </video>
+        </div>
+    </div>
+
+    <script>
+        function showPanel(id) {
+            document.querySelectorAll('.tab').forEach(tab => 
+                tab.classList.toggle('active', tab.textContent.toLowerCase().includes(id)));
+            document.getElementById('live-panel').style.display = id === 'live' ? 'block' : 'none';
+            document.getElementById('recordings-panel').style.display = id === 'recordings' ? 'block' : 'none';
+            
+            if (id === 'recordings') {
+                loadRecordings();
+            }
+        }
+
+        function loadRecordings() {
+            fetch('/recordings')
+                .then(response => response.json())
+                .then(data => {
+                    const list = document.getElementById('recordings-list');
+                    list.innerHTML = data.recordings.map(rec => `
+                        <div class="recording-item">
+                            <div class="recording-info">
+                                <div><strong>${rec.filename}</strong></div>
+                                <div>Recorded: ${rec.date}</div>
+                                <div>Size: ${rec.duration}</div>
+                            </div>
+                            <button class="play-btn" onclick="playVideo('/recording/${rec.filename}')">Play</button>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function playVideo(url) {
+            const modal = document.getElementById('videoModal');
+            const video = document.getElementById('modalVideo');
+            video.querySelector('source').src = url;
+            video.load();
+            modal.style.display = 'block';
+            video.play().catch(e => console.error('Error playing video:', e));
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('videoModal');
+            const video = document.getElementById('modalVideo');
+            video.pause();
+            video.querySelector('source').src = '';
+            video.load();
+            modal.style.display = 'none';
+        }
+
+        // Close modal on outside click
+        document.getElementById('videoModal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+    </script>
 </body>
 </html>
 """
@@ -137,7 +328,7 @@ class OBICamRecorder:
 
             self.close_recording()
             timestamp = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-            filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.avi"
+            filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.mp4"
 
             logger.info(f"Creating recording file: {filename}")
 
@@ -295,7 +486,8 @@ class StreamingServer:
                 consecutive_failures = 0
                 self._last_frame_time = time.time()
                 frame_copy = frame.copy()
-                ret, buffer = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                # Increase JPEG quality for better stream clarity
+                ret, buffer = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 95])
                 if ret:
                     self._frame_buffer.put(buffer.tobytes(), block=False)
 
@@ -368,6 +560,35 @@ class StreamingServer:
             @self.app.route("/url")
             def get_url():
                 return {"url": self.public_url}
+
+            @self.app.route("/recordings")
+            def list_recordings():
+                recordings = []
+                for file in os.listdir(RECORDINGS_DIR):
+                    if file.endswith(".mp4"):
+                        path = os.path.join(RECORDINGS_DIR, file)
+                        stat = os.stat(path)
+                        recordings.append({
+                            "filename": file,
+                            "date": datetime.datetime.fromtimestamp(stat.st_mtime).strftime(DISPLAY_TIMESTAMP_FORMAT),
+                            "duration": f"{stat.st_size / (1024*1024):.1f} MB"
+                        })
+                result = {"recordings": sorted(recordings, key=lambda x: x["date"], reverse=True)}
+                return result
+
+            @self.app.route("/recording/<path:filename>")
+            def serve_recording(filename):
+                try:
+                    response = send_from_directory(RECORDINGS_DIR, filename)
+                    response.headers.update({
+                        'Content-Type': 'video/mp4',
+                        'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'no-cache'
+                    })
+                    return response
+                except Exception as e:
+                    logger.error(f"Error serving video: {str(e)}")
+                    return str(e), 500
 
             threading.Thread(
                 target=lambda: self.app.run(
