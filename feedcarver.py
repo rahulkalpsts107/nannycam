@@ -1,13 +1,14 @@
-import cv2
 import datetime
-import os
-import time
 import logging
+import os
+import queue
+import threading
+import time
+
+import cv2
+import numpy as np
 from flask import Flask, Response, render_template_string
 from pyngrok import ngrok
-import threading
-import queue
-import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -15,12 +16,16 @@ logger = logging.getLogger(__name__)
 
 # Constants
 DEFAULT_PORT = "4747"
-RECORDINGS_DIR = '/Users/Rahul/recordings'
-VIDEO_FORMAT = 'avc1'  # Changed from mp4v for macOS compatibility
+RECORDINGS_DIR = "/Users/Rahul/recordings"
+VIDEO_FORMAT = "MPEG"  # Try more basic codec
+VIDEO_EXTENSIONS = {"MPEG": ".avi"}
+VIDEO_WIDTH = 640  # Force smaller resolution
+VIDEO_HEIGHT = 480
+VIDEO_FPS = 30.0  # Match input FPS
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILENAME_PREFIX = "droidcam"
-WINDOW_TITLE = 'Droidcam Stream'
+WINDOW_TITLE = "Droidcam Stream"
 DEFAULT_RECORDING_DURATION = 3600  # 1 hour in seconds
 FLASK_PORT = 8000  # Changed from 5000
 FLASK_PORT_FALLBACK = 8080  # Fallback port if primary is in use
@@ -49,32 +54,52 @@ HTML_TEMPLATE = """
 </html>
 """
 
+
 class OBICamRecorder:
-    def __init__(self, ip_address, port=DEFAULT_PORT, username=None, password=None, 
-                 recording_duration=DEFAULT_RECORDING_DURATION, show_window=False):
-        self.stream_url = f"http://{ip_address}:{port}/video"
-        self.cap = cv2.VideoCapture(self.stream_url)
-        
-        # Set buffer size and timeouts
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)  # Force 30fps
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        
-        # Validate stream
-        if not self._validate_stream():
-            raise ConnectionError("Failed to initialize valid video stream")
-        
-        self.recording_duration = recording_duration
-        self.current_output = None
-        self.recording_start_time = None
+    def __init__(
+        self,
+        ip_address,
+        port=DEFAULT_PORT,
+        username=None,
+        password=None,
+        recording_duration=DEFAULT_RECORDING_DURATION,
+        show_window=False,
+    ):
+        # Initialize basic attributes first
         self.ip_address = ip_address
         self.port = port
+        self.recording_duration = recording_duration
         self.show_window = show_window
-        
+
+        # Initialize recording attributes
+        self.current_output = None
+        self.current_filename = None
+        self.recording_start_time = None
+        self.width = None
+        self.height = None
+        self.fps = None
+
+        # Initialize camera connection
+        self.stream_url = f"http://{ip_address}:{port}/video"
+        self.cap = cv2.VideoCapture(self.stream_url)
+
+        if not self.cap.isOpened():
+            raise ConnectionError("Failed to open camera stream")
+
+        # Configure camera properties
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
+        # Set dimensions after camera is initialized
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        
+
+        # Validate stream last
+        if not self._validate_stream():
+            raise ConnectionError("Failed to initialize valid video stream")
+
     def _validate_stream(self):
         max_retries = 3
         for attempt in range(max_retries):
@@ -87,7 +112,7 @@ class OBICamRecorder:
                 time.sleep(1)
                 self.cap = cv2.VideoCapture(self.stream_url)
             except Exception as e:
-                logger.error(f"Stream validation error (attempt {attempt+1}): {e}")
+                logger.error(f"Stream validation error (attempt {attempt + 1}): {e}")
                 time.sleep(1)
         return False
 
@@ -96,71 +121,90 @@ class OBICamRecorder:
         self.cap.release()
         time.sleep(0.5)  # Add delay before reconnect
         self.cap = cv2.VideoCapture(self.stream_url)
-        
+
         # Reset capture properties
         if self.cap.isOpened():
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
             self.cap.set(cv2.CAP_PROP_FPS, 30)
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
             return self._validate_stream()
         return False
 
     def create_new_recording(self):
-        if not os.path.exists(RECORDINGS_DIR):
-            os.makedirs(RECORDINGS_DIR)
-            
-        timestamp = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-        filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.mp4"
-        
-        if self.current_output is not None:
-            self.current_output.release()
-            
-        fourcc = cv2.VideoWriter_fourcc(*VIDEO_FORMAT)
-        self.current_output = cv2.VideoWriter(filename, fourcc, self.fps, 
-                                            (self.width, self.height))
-        self.recording_start_time = time.time()
-        print(f"Started new recording: {filename}")
-        
+        try:
+            if not os.path.exists(RECORDINGS_DIR):
+                os.makedirs(RECORDINGS_DIR)
+
+            self.close_recording()
+            timestamp = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
+            filename = f"{RECORDINGS_DIR}/{FILENAME_PREFIX}_{timestamp}.avi"
+
+            logger.info(f"Creating recording file: {filename}")
+
+            fourcc = cv2.VideoWriter_fourcc(*VIDEO_FORMAT)
+            new_output = cv2.VideoWriter(filename, fourcc, 20.0, (VIDEO_WIDTH, VIDEO_HEIGHT), True)
+
+            if not new_output.isOpened():
+                raise RuntimeError(f"VideoWriter failed to open with codec {VIDEO_FORMAT}")
+
+            self.current_output = new_output
+            self.current_filename = filename
+            self.recording_start_time = time.time()
+            logger.info(f"Recording started: {filename}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Recording error: {str(e)}")
+            if "new_output" in locals():
+                new_output.release()
+            self.current_output = None
+            return False
+
     def close_recording(self):
-        """Safely close current recording and release resources"""
-        logger.info("Closing recording...")
+        """Safely close current recording"""
         if self.current_output is not None:
+            logger.info("Finalizing recording...")
             self.current_output.release()
             self.current_output = None
+
         if self.cap is not None:
             self.cap.release()
-            
+
+    def __del__(self):
+        """Ensure proper cleanup on deletion"""
+        self.close_recording()
+
     def run(self):
         try:
             self.create_new_recording()
-            
+
             while True:
                 ret, frame = self.cap.read()
                 if not ret:
                     break
-                    
+
                 current_time = time.time()
                 elapsed_time = current_time - self.recording_start_time
-                
+
                 if elapsed_time >= self.recording_duration:
                     self.create_new_recording()
-                
+
                 self.current_output.write(frame)
-                
+
                 if self.show_window:
                     timestamp = datetime.datetime.now().strftime(DISPLAY_TIMESTAMP_FORMAT)
-                    cv2.putText(frame, timestamp, (10, 30), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    cv2.putText(
+                        frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+                    )
                     cv2.imshow(WINDOW_TITLE, frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
-                        
+
         finally:
-            self.cap.release()
-            if self.current_output is not None:
-                self.current_output.release()
+            self.close_recording()
             if self.show_window:
                 cv2.destroyAllWindows()
+
 
 class StreamingServer:
     def __init__(self, recorder, use_ngrok=USE_NGROK):
@@ -186,7 +230,7 @@ class StreamingServer:
             self.recorder.create_new_recording()
 
         # Add root route
-        @self.app.route('/video_feed')
+        @self.app.route("/video_feed")
         def video_feed():
             return self.video_feed()
 
@@ -205,7 +249,7 @@ class StreamingServer:
         consecutive_failures = 0
         max_failures = 3
         recording_start_time = time.time()
-        
+
         while self._running:
             try:
                 if not self._connection_healthy:
@@ -216,8 +260,10 @@ class StreamingServer:
                 ret, frame = self.recorder.cap.read()
                 if not ret or frame is None:
                     consecutive_failures += 1
-                    logger.error(f"Failed to read frame (attempt {consecutive_failures}/{max_failures})")
-                    
+                    logger.error(
+                        f"Failed to read frame (attempt {consecutive_failures}/{max_failures})"
+                    )
+
                     if consecutive_failures >= max_failures:
                         self._connection_healthy = False
                         consecutive_failures = 0
@@ -228,15 +274,28 @@ class StreamingServer:
                 if self._recording_enabled:
                     current_time = time.time()
                     if current_time - recording_start_time >= self.recorder.recording_duration:
-                        self.recorder.create_new_recording()
-                        recording_start_time = current_time
-                    self.recorder.current_output.write(frame)
+                        if not self.recorder.create_new_recording():
+                            logger.error("Failed to create new recording, disabling recording")
+                            self._recording_enabled = False
+                        else:
+                            recording_start_time = current_time
+
+                    if (
+                        self.recorder.current_output is not None
+                        and self.recorder.current_output.isOpened()
+                    ):
+                        try:
+                            self.recorder.current_output.write(frame)
+                        except Exception as e:
+                            logger.error(f"Failed to write frame: {e}")
+                            self._recording_enabled = False
+                            self.recorder.close_recording()
 
                 # Continue with streaming
                 consecutive_failures = 0
                 self._last_frame_time = time.time()
                 frame_copy = frame.copy()
-                ret, buffer = cv2.imencode('.jpg', frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                ret, buffer = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ret:
                     self._frame_buffer.put(buffer.tobytes(), block=False)
 
@@ -251,44 +310,44 @@ class StreamingServer:
         if not self._capture_thread.is_alive():
             self._capture_thread.start()
 
-        yield b'--FRAME\r\n'
+        yield b"--FRAME\r\n"
 
         while True:
             try:
                 frame_data = self._frame_buffer.get(timeout=5.0)
-                yield b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n--FRAME\r\n'
-                
+                yield b"Content-Type: image/jpeg\r\n\r\n" + frame_data + b"\r\n--FRAME\r\n"
+
             except queue.Empty:
                 logger.warning("Frame buffer empty, sending blank frame...")
                 blank_frame = np.zeros((480, 640, 3), np.uint8)
-                _, buffer = cv2.imencode('.jpg', blank_frame)
-                yield b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n--FRAME\r\n'
-                
+                _, buffer = cv2.imencode(".jpg", blank_frame)
+                yield b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n--FRAME\r\n"
+
             except Exception as e:
                 logger.error(f"Streaming error: {str(e)}")
                 time.sleep(0.1)
 
     def video_feed(self):
         headers = {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Connection': 'keep-alive'
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Connection": "keep-alive",
         }
         return Response(
             self.generate_frames(),
-            mimetype='multipart/x-mixed-replace; boundary=FRAME',
-            headers=headers
+            mimetype="multipart/x-mixed-replace; boundary=FRAME",
+            headers=headers,
         )
 
     def __del__(self):
         self._running = False
-        if self._recording_enabled and hasattr(self.recorder, 'current_output'):
+        if self._recording_enabled and hasattr(self.recorder, "current_output"):
             self.recorder.current_output.release()
-        if hasattr(self, '_capture_thread'):
+        if hasattr(self, "_capture_thread"):
             self._capture_thread.join(timeout=1.0)
         self._current_frame = None
-        if hasattr(self, 'recorder') and self.recorder:
+        if hasattr(self, "recorder") and self.recorder:
             self.recorder.cap.release()
 
     def start(self):
@@ -299,26 +358,23 @@ class StreamingServer:
 
             if self.use_ngrok:
                 self.public_url = ngrok.connect(FLASK_PORT).public_url
-            
+
             logger.info(f"Stream available at: {self.public_url}")
-            
-            @self.app.route('/')
+
+            @self.app.route("/")
             def index():
-                return render_template_string(HTML_TEMPLATE, 
-                                           stream_url=self.public_url)
-            
-            @self.app.route('/url')
+                return render_template_string(HTML_TEMPLATE, stream_url=self.public_url)
+
+            @self.app.route("/url")
             def get_url():
-                return {'url': self.public_url}
-            
-            threading.Thread(target=lambda: self.app.run(
-                host='0.0.0.0', 
-                port=FLASK_PORT, 
-                debug=False, 
-                use_reloader=False,
-                threaded=True
-            )).start()
-            
+                return {"url": self.public_url}
+
+            threading.Thread(
+                target=lambda: self.app.run(
+                    host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False, threaded=True
+                )
+            ).start()
+
         except Exception as e:
             logger.error(f"Failed to start server: {str(e)}")
             raise
