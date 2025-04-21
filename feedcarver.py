@@ -21,7 +21,7 @@ VIDEO_FORMAT = "avc1"  # H.264 codec
 VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
 VIDEO_WIDTH = 640  # Force smaller resolution
 VIDEO_HEIGHT = 480
-VIDEO_FPS = 30.0  # Match input FPS
+VIDEO_FPS = 60.0  # Match iPhone DroidCam settings
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILENAME_PREFIX = "droidcam"
@@ -279,13 +279,13 @@ class OBICamRecorder:
 
         # Configure camera properties
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 60 FPS explicitly
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
         # Set dimensions after camera is initialized
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.fps = 60.0  # Force 60 FPS
 
         # Validate stream last
         if not self._validate_stream():
@@ -332,22 +332,24 @@ class OBICamRecorder:
 
             logger.info(f"Creating recording file: {filename}")
 
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # Use H.264
+            # Force 60 FPS to match iPhone settings
+            target_fps = 60.0
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
             new_output = cv2.VideoWriter(
                 filename,
                 fourcc,
-                30.0,  # Use full 30fps
-                (VIDEO_WIDTH, VIDEO_HEIGHT),
+                target_fps,  # Force 60 FPS
+                (self.width, self.height),
                 True
             )
 
             if not new_output.isOpened():
                 raise RuntimeError(f"VideoWriter failed to open with codec {VIDEO_FORMAT}")
 
+            logger.info(f"Recording at {target_fps} FPS with dimensions {self.width}x{self.height}")
             self.current_output = new_output
             self.current_filename = filename
             self.recording_start_time = time.time()
-            logger.info(f"Recording started: {filename}")
             return True
 
         except Exception as e:
@@ -425,11 +427,32 @@ class StreamingServer:
         self._recording_enabled = True
         if self._recording_enabled:
             self.recorder.create_new_recording()
+        self._cleanup_recordings()  # Initial cleanup
 
         # Add root route
         @self.app.route("/video_feed")
         def video_feed():
             return self.video_feed()
+
+    def _cleanup_recordings(self):
+        """Delete recordings older than 10 days"""
+        try:
+            now = time.time()
+            max_age = 10 * 24 * 60 * 60  # 10 days in seconds
+            
+            for file in os.listdir(RECORDINGS_DIR):
+                if file.endswith(".mp4"):
+                    filepath = os.path.join(RECORDINGS_DIR, file)
+                    file_age = now - os.path.getmtime(filepath)
+                    
+                    if file_age > max_age:
+                        try:
+                            os.remove(filepath)
+                            logger.info(f"Deleted old recording: {file}")
+                        except OSError as e:
+                            logger.error(f"Error deleting {file}: {e}")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
     def _check_connection_health(self):
         if time.time() - self._last_frame_time > self._reconnect_timeout:
@@ -446,6 +469,8 @@ class StreamingServer:
         consecutive_failures = 0
         max_failures = 3
         recording_start_time = time.time()
+        cleanup_interval = 3600  # Run cleanup every hour
+        last_cleanup = time.time()
 
         while self._running:
             try:
@@ -487,6 +512,12 @@ class StreamingServer:
                             logger.error(f"Failed to write frame: {e}")
                             self._recording_enabled = False
                             self.recorder.close_recording()
+
+                # Run periodic cleanup
+                current_time = time.time()
+                if current_time - last_cleanup > cleanup_interval:
+                    self._cleanup_recordings()
+                    last_cleanup = current_time
 
                 # Continue with streaming
                 consecutive_failures = 0
