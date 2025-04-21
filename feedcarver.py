@@ -19,8 +19,8 @@ DEFAULT_PORT = "4747"
 RECORDINGS_DIR = "/Users/Rahul/recordings"
 VIDEO_FORMAT = "avc1"  # H.264 codec
 VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
-VIDEO_WIDTH = 640  # Force smaller resolution
-VIDEO_HEIGHT = 480
+VIDEO_WIDTH = 1280  # Increased from 640
+VIDEO_HEIGHT = 720  # Increased from 480
 VIDEO_FPS = 60.0  # Match iPhone DroidCam settings
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -37,52 +37,79 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Nanny Cam Dashboard</title>
+    <title>Anvi Nanny Cam</title>
     <style>
         body { 
-            text-align: center; 
-            padding: 20px; 
-            background: #f0f2f5;
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 0;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #2c3e50;
         }
-        .stream-container {
-            max-width: 1280px;
+        .header {
+            text-align: center;
+            padding: 30px 20px;
+            color: white;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .header p {
+            opacity: 0.9;
+            margin: 10px 0;
+            font-size: 1.1em;
+        }
+        .container {
+            max-width: 1440px;
             margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .stream-window {
-            width: 100%;
-            height: auto;
-            aspect-ratio: 16/9;
-            object-fit: cover;
-            border-radius: 8px;
-        }
-        h1 { color: #1a1a1a; margin-bottom: 30px; }
-        .url-info { margin: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
-        .recordings-list {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .recording-row {
+            padding: 0 20px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            padding: 15px;
-            border-bottom: 1px solid #eee;
-            transition: background 0.2s;
         }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
+        .panel {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        #live-panel {
+            aspect-ratio: 16/9;  /* Match iPhone camera ratio */
+            width: 100%;
+            max-width: 1440px;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        #live-stream {
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.9);
-            z-index: 1000;
+            object-fit: contain;  /* This preserves aspect ratio */
+            display: block;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: white;
+            margin-top: 40px;
+        }
+        .footer a {
+            color: white;
+            text-decoration: none;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        .footer a:hover {
+            opacity: 1;
         }
         .tabs {
             display: flex;
@@ -98,12 +125,6 @@ HTML_TEMPLATE = """
         .tab.active {
             background: #2c3e50;
             color: white;
-        }
-        .panel {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .recordings-list {
             display: flex;
@@ -151,7 +172,11 @@ HTML_TEMPLATE = """
         }
         .modal-video {
             width: 100%;
+            height: auto;
+            max-height: 90vh;
+            object-fit: contain;  /* Changed from default to contain */
             border-radius: 8px;
+            background: #000;  /* Added black background */
         }
         .close-btn {
             position: absolute;
@@ -164,6 +189,11 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <div class="header">
+        <h1>Anvi Nanny Cam</h1>
+        <p>Keeping our little angel safe and sound</p>
+    </div>
+
     <div class="container">
         <div class="tabs">
             <div class="tab active" onclick="showPanel('live')">Live Stream</div>
@@ -177,6 +207,10 @@ HTML_TEMPLATE = """
         <div id="recordings-panel" class="panel" style="display:none">
             <div id="recordings-list" class="recordings-list"></div>
         </div>
+    </div>
+
+    <div class="footer">
+        <p>Powered by <a href="https://anvi.io" target="_blank">Anvi.io</a> | Made with ❤️ for Anvi</p>
     </div>
 
     <div id="videoModal">
@@ -282,10 +316,15 @@ class OBICamRecorder:
         self.cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 60 FPS explicitly
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
-        # Set dimensions after camera is initialized
+        # Get actual dimensions from camera
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = 60.0  # Force 60 FPS
+        logger.info(f"Camera dimensions: {self.width}x{self.height}")
+
+        # Use native camera dimensions instead of forcing our own
+        global VIDEO_WIDTH, VIDEO_HEIGHT
+        VIDEO_WIDTH = self.width
+        VIDEO_HEIGHT = self.height
 
         # Validate stream last
         if not self._validate_stream():
