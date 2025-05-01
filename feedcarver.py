@@ -242,15 +242,30 @@ HTML_TEMPLATE = """
                 .then(data => {
                     const list = document.getElementById('recordings-list');
                     list.innerHTML = data.recordings.map(rec => `
-                        <div class="recording-item">
+                        <div class="recording-item" id="rec-${rec.filename.replace(/[^a-zA-Z0-9]/g, '')}">
                             <div class="recording-info">
                                 <div><strong>${rec.filename}</strong></div>
                                 <div>Recorded: ${rec.date}</div>
                                 <div>Size: ${rec.duration}</div>
                             </div>
                             <button class="play-btn" onclick="playVideo('/recording/${rec.filename}')">Play</button>
+                            <button class="play-btn" style="background:#e74c3c; margin-left:10px;" onclick="deleteRecording('${rec.filename}')">Delete</button>
                         </div>
                     `).join('');
+                });
+        }
+
+        function deleteRecording(filename) {
+            if (!confirm('Are you sure you want to delete this recording?')) return;
+            fetch(`/delete_recording/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+                .then(response => {
+                    if (response.ok) {
+                        // Remove from UI
+                        const el = document.getElementById('rec-' + filename.replace(/[^a-zA-Z0-9]/g, ''));
+                        if (el) el.remove();
+                    } else {
+                        alert('Failed to delete recording.');
+                    }
                 });
         }
 
@@ -665,6 +680,21 @@ class StreamingServer:
                     return response
                 except Exception as e:
                     logger.error(f"Error serving video: {str(e)}")
+                    return str(e), 500
+
+            @self.app.route("/delete_recording/<path:filename>", methods=["DELETE"])
+            def delete_recording(filename):
+                try:
+                    filepath = os.path.join(RECORDINGS_DIR, filename)
+                    if not os.path.exists(filepath):
+                        logger.error(f"File not found: {filepath}")
+                        return "File not found", 404
+
+                    os.remove(filepath)
+                    logger.info(f"Deleted recording: {filename}")
+                    return "Recording deleted", 200
+                except Exception as e:
+                    logger.error(f"Error deleting recording: {str(e)}")
                     return str(e), 500
 
             # Start the Flask server
