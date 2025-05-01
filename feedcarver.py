@@ -18,7 +18,7 @@ LOG_FILE = os.environ.get("LOG_FILE", "nannycam.log")
 MAX_LOG_SIZE = 10 * 1024 * 1024  # 10 MB
 
 DEFAULT_PORT = "4747"
-RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "/Users/Rahul/recordings")
+RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "/recordings")
 VIDEO_FORMAT = "avc1"  # H.264 codec
 VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
 VIDEO_WIDTH = 1280  # Increased from 640

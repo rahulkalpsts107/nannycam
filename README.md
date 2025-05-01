@@ -41,7 +41,7 @@ DROIDCAM_IP_ADDRESS=x.x.x.x
 DROIDCAM_PORT=0000
 ```
 - `PUBLIC_URL`: The URL where your stream will be accessible (default: http://localhost:8000)
-- `RECORDINGS_DIR`: Directory to store video recordings (default: /Users/Rahul/recordings)
+- `RECORDINGS_DIR`: Directory to store video recordings (default: /recordings)
 - `FLASK_PORT`: Port for the Flask server (default: 8000)
 - `LOG_FILE`: File to store server logs (default: nannycam.log)
 - `DROIDCAM_IP_ADDRESS`: The IP address of your camera (default: 192.168.1.129)
