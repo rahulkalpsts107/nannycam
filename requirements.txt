@@ -5,4 +5,6 @@ pyngrok
 pyOpenSSL
 cryptography
 certifi
-ruff  # For code linting and formatting
+ruff
+dotenv
+# For code linting and formatting

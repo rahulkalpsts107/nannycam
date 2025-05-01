@@ -8,14 +8,17 @@ import time
 import cv2
 import numpy as np
 from flask import Flask, Response, render_template_string, send_from_directory
+from dotenv import load_dotenv
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Load environment variables from .env if present
+load_dotenv()
 
 # Constants
+LOG_FILE = os.environ.get("LOG_FILE", "nannycam.log")
+MAX_LOG_SIZE = 10 * 1024 * 1024  # 10 MB
+
 DEFAULT_PORT = "4747"
-RECORDINGS_DIR = "/Users/Rahul/recordings"
+RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "/Users/Rahul/recordings")
 VIDEO_FORMAT = "avc1"  # H.264 codec
 VIDEO_EXTENSIONS = {"avc1": ".mp4"}  # MP4 container
 VIDEO_WIDTH = 1280  # Increased from 640
@@ -26,9 +29,11 @@ DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILENAME_PREFIX = "droidcam"
 WINDOW_TITLE = "Droidcam Stream"
 DEFAULT_RECORDING_DURATION = 3600  # 1 hour in seconds
-FLASK_PORT = 8000  # Changed from 5000
-FLASK_PORT_FALLBACK = 8080  # Fallback port if primary is in use
-PUBLIC_URL = "http://stream.anvi.baby"  # Your Cloudflare domain
+FLASK_PORT = int(os.environ.get("FLASK_PORT", 8000))  # Changed to use env var
+FLASK_PORT_FALLBACK = int(os.environ.get("FLASK_PORT_FALLBACK", 8080))
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000")  # Now from env var
+
+logger = logging.getLogger(__name__)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -287,45 +292,49 @@ class OBICamRecorder:
         recording_duration=DEFAULT_RECORDING_DURATION,
         show_window=False,
     ):
-        # Initialize basic attributes first
-        self.ip_address = ip_address
-        self.port = port
-        self.recording_duration = recording_duration
-        self.show_window = show_window
+        try:
+            # Initialize basic attributes first
+            self.ip_address = ip_address
+            self.port = port
+            self.recording_duration = recording_duration
+            self.show_window = show_window
 
-        # Initialize recording attributes
-        self.current_output = None
-        self.current_filename = None
-        self.recording_start_time = None
-        self.width = None
-        self.height = None
-        self.fps = None
+            # Initialize recording attributes
+            self.current_output = None
+            self.current_filename = None
+            self.recording_start_time = None
+            self.width = None
+            self.height = None
+            self.fps = None
 
-        # Initialize camera connection
-        self.stream_url = f"http://{ip_address}:{port}/video"
-        self.cap = cv2.VideoCapture(self.stream_url)
+            # Initialize camera connection
+            self.stream_url = f"http://{ip_address}:{port}/video"
+            self.cap = cv2.VideoCapture(self.stream_url)
 
-        if not self.cap.isOpened():
-            raise ConnectionError("Failed to open camera stream")
+            if not self.cap.isOpened():
+                raise ConnectionError("Failed to open camera stream")
 
-        # Configure camera properties
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
-        self.cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 60 FPS explicitly
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            # Configure camera properties
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+            self.cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 60 FPS explicitly
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
-        # Get actual dimensions from camera
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        logger.info(f"Camera dimensions: {self.width}x{self.height}")
+            # Get actual dimensions from camera
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            logger.info(f"Camera dimensions: {self.width}x{self.height}")
 
-        # Use native camera dimensions instead of forcing our own
-        global VIDEO_WIDTH, VIDEO_HEIGHT
-        VIDEO_WIDTH = self.width
-        VIDEO_HEIGHT = self.height
+            # Use native camera dimensions instead of forcing our own
+            global VIDEO_WIDTH, VIDEO_HEIGHT
+            VIDEO_WIDTH = self.width
+            VIDEO_HEIGHT = self.height
 
-        # Validate stream last
-        if not self._validate_stream():
-            raise ConnectionError("Failed to initialize valid video stream")
+            # Validate stream last
+            if not self._validate_stream():
+                raise ConnectionError("Failed to initialize valid video stream")
+        except Exception as e:
+            logger.exception(f"Exception in OBICamRecorder.__init__: {e}")
+            raise
 
     def _validate_stream(self):
         max_retries = 3
@@ -465,10 +474,10 @@ class StreamingServer:
             return self.video_feed()
 
     def _cleanup_recordings(self):
-        """Delete recordings older than 10 days"""
+        """Delete recordings older than 100 days"""
         try:
             now = time.time()
-            max_age = 10 * 24 * 60 * 60  # 10 days in seconds
+            max_age = 100 * 24 * 60 * 60  # 100 days in seconds
             
             for file in os.listdir(RECORDINGS_DIR):
                 if file.endswith(".mp4"):
