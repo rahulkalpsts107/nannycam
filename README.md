@@ -6,13 +6,21 @@
 ![macOS](https://img.shields.io/badge/OS-macOS-lightgrey?logo=apple)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+[![Python package](https://github.com/rahulkalpsts107/nannycam/actions/workflows/python-package.yml/badge.svg)](https://github.com/rahulkalpsts107/nannycam/actions/workflows/python-package.yml)
 
-A simple nanny camera streaming and recording server built with Python, Flask, and OpenCV. It streams live video from an IP camera, records video segments, and provides a web interface to view the live stream and past recordings.
+Commercial nanny cams are often expensive and may not guarantee data privacy. With this project, you can repurpose an old smartphone as a secure nanny cam.
+
+NannyCam is a lightweight streaming and recording server built with Python, Flask, and OpenCV. It streams live video from an IP camera (such as a smartphone running a camera app), records video segments, and offers a user-friendly web interface to view both the live stream and past recordings.
+
+You can also test remote access of the website using a personal domain. This software was tested using tunneling solutions like Cloudflare. Open to add more web hosting provider.
 
 ## Features
 - Live video streaming from an IP camera (e.g., DroidCam)
 - Automatic video recording in segments
-- Web interface to view live stream and recordings
+- **Modern web interface:**
+  - View the live stream in real time
+  - Browse, play, and delete past recordings directly from your browser
+  - Responsive design for desktop and mobile
 - Recordings auto-cleaned after 10 days
 - Environment variable support for sensitive configuration
 
