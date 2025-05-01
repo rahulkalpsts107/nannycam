@@ -1,5 +1,12 @@
 # NannyCam
 
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
+![Flask](https://img.shields.io/badge/Flask-2.3-green?logo=flask)
+![OpenCV](https://img.shields.io/badge/OpenCV-4.x-red?logo=opencv)
+![macOS](https://img.shields.io/badge/OS-macOS-lightgrey?logo=apple)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+
 A simple nanny camera streaming and recording server built with Python, Flask, and OpenCV. It streams live video from an IP camera, records video segments, and provides a web interface to view the live stream and past recordings.
 
 ## Features
