@@ -30,8 +30,8 @@ if __name__ == "__main__":
     # Initialize camera
     recorder = OBICamRecorder(ip_address="192.168.1.129", port="4747")
 
-    # Initialize and start streaming server
-    server = StreamingServer(recorder, use_ngrok=False)  # Use public IP instead of ngrok
+    # Initialize and start streaming server - simplified initialization
+    server = StreamingServer(recorder)  # Remove use_ngrok parameter
     server.start()
 
     # Keep main thread alive

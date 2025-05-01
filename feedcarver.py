@@ -8,7 +8,6 @@ import time
 import cv2
 import numpy as np
 from flask import Flask, Response, render_template_string, send_from_directory
-from pyngrok import ngrok
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -29,9 +28,7 @@ WINDOW_TITLE = "Droidcam Stream"
 DEFAULT_RECORDING_DURATION = 3600  # 1 hour in seconds
 FLASK_PORT = 8000  # Changed from 5000
 FLASK_PORT_FALLBACK = 8080  # Fallback port if primary is in use
-NGROK_AUTH_TOKEN = "2vzWj2vkowo5gKH4v76TzvfKZs0_6MXA3sk8otnHKzPyL4v2B"
-PUBLIC_IP = "infinite-cunning-eagle.ngrok-free.app"  # Add your public IP here
-USE_NGROK = False  # Set to False to use public IP instead
+PUBLIC_URL = "http://stream.anvi.baby"  # Your Cloudflare domain
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -445,30 +442,24 @@ class OBICamRecorder:
 
 
 class StreamingServer:
-    def __init__(self, recorder, use_ngrok=USE_NGROK):
-        self.use_ngrok = use_ngrok
-        if self.use_ngrok:
-            ngrok.set_auth_token(NGROK_AUTH_TOKEN)
-        else:
-            self.public_url = f"https://{PUBLIC_IP}"  # Use configured public URL
-            logger.info(f"Using public URL: {self.public_url}")
+    def __init__(self, recorder):
+        self.public_url = PUBLIC_URL
         self.app = Flask(__name__)
         self.recorder = recorder
-        self.frame_count = 0
         self._frame_lock = threading.Lock()
-        self._frame_buffer = queue.Queue(maxsize=30)  # Buffer 30 frames
+        self._frame_buffer = queue.Queue(maxsize=30)
         self._running = True
         self._capture_thread = threading.Thread(target=self._capture_frames)
         self._capture_thread.daemon = True
         self._last_frame_time = time.time()
         self._connection_healthy = True
-        self._reconnect_timeout = 5  # seconds
+        self._reconnect_timeout = 5
         self._recording_enabled = True
+        
         if self._recording_enabled:
             self.recorder.create_new_recording()
-        self._cleanup_recordings()  # Initial cleanup
+        self._cleanup_recordings()
 
-        # Add root route
         @self.app.route("/video_feed")
         def video_feed():
             return self.video_feed()
@@ -624,8 +615,6 @@ class StreamingServer:
                 self._capture_thread.start()
                 time.sleep(1)
 
-            if self.use_ngrok:
-                self.public_url = ngrok.connect(FLASK_PORT).public_url
             logger.info(f"Stream available at: {self.public_url}")
 
             @self.app.route("/")
@@ -672,7 +661,7 @@ class StreamingServer:
             # Start the Flask server
             threading.Thread(
                 target=lambda: self.app.run(
-                    host="0.0.0.0", 
+                    host="0.0.0.0",  # Only listen on localhost
                     port=FLASK_PORT,
                     debug=False,
                     use_reloader=False,
